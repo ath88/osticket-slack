@@ -9,6 +9,7 @@ class SlackPlugin extends Plugin {
 
 	function bootstrap() {
 		Signal::connect('model.created', array($this, 'onTicketCreated'), 'Ticket');
+        Signal::connect('model.updated', array($this, 'onTicketUpdated'), 'Ticket');
     }
 
 	function onTicketCreated($ticket){
@@ -43,7 +44,61 @@ class SlackPlugin extends Plugin {
 			$ch = curl_init($url);
 			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
 			curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
-			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);                                                                      
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+			curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+				'Content-Type: application/json',
+				'Content-Length: ' . strlen($data_string))
+			);
+
+			if(curl_exec($ch) === false){
+				throw new Exception($url . ' - ' . curl_error($ch));
+			}
+			else{
+				$statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+				if($statusCode != '200'){
+					throw new Exception($url . ' Http code: ' . $statusCode);
+				}
+			}
+			curl_close($ch);
+		}
+		catch(Exception $e) {
+			error_log('Error posting to Slack. '. $e->getMessage());
+		}
+	}
+
+    function onTicketUpdated($ticket){
+		try {
+			global $ost;
+			$payload = array(
+						'attachments' =>
+							array (
+								array (
+									'pretext' => "Updated Ticket <" . $ost->getConfig()->getUrl() . "scp/tickets.php?id="
+												. $ticket->getId() . "|#" . $ticket->getNumber() . "> updated",
+									'fallback' => "Updated Ticket <" . $ost->getConfig()->getUrl() . "scp/tickets.php?id="
+												. $ticket->getId() . "|#" . $ticket->getNumber() . "> updated",
+									'color' => "#D00000",
+									'fields' =>
+									array(
+										array (
+											'title' => $ticket->getSubject(),
+											'value' => "updated by " . $ticket->getName() . "(" . $ticket->getEmail()
+														. ") in " . $ticket->getDeptName() . "(Department) via "
+														. $ticket->getSource() . ". Status: " . $ticket->getStatus(),
+											'short' => False,
+										),
+									),
+								),
+							),
+						);
+
+			$data_string = utf8_encode(json_encode($payload));
+			$url = $this->getConfig()->get('slack-webhook-url');
+
+			$ch = curl_init($url);
+			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+			curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
+			curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 			curl_setopt($ch, CURLOPT_HTTPHEADER, array(
 				'Content-Type: application/json',
 				'Content-Length: ' . strlen($data_string))
